@@ -4,12 +4,15 @@
 #include "arduino_secrets.h"
 
 // WIFI
-char ssid[] = SECRET_SSID;   // network SSID (name)
-char pass[] = SECRET_PASS;   // network password
-int status = WL_IDLE_STATUS; // the WiFi radio's idle status
+char ssid[] = LABS_SECRET_SSID; // network SSID (name)
+char pass[] = LABS_SECRET_PASS; // network password
+int status = WL_IDLE_STATUS;    // the WiFi radio's idle status
 byte mac[6];
-const String url = "api.boxdev.site";
+const String remote = "api.boxdev.site";
+const String local = "localhost";
+const String url = remote;
 // WiFiClient client; // Initialize the Wifi client
+WiFiClient client;
 
 // DHT11
 #define DHTPin 2
@@ -37,6 +40,7 @@ struct KeyValue
 String getMacAddress(byte mac[]);
 float read_sen_humidity();
 float read_sen_temperature();
+void postRequest(String path, KeyValue keyValue[], size_t size);
 
 void setup()
 {
@@ -62,10 +66,17 @@ void setup()
     status = WiFi.begin(ssid, pass);
     delay(500);
   }
-  Serial.println((String) "You're connected to: " + ssid);
-  String macAdd = getMacAddress(WiFi.macAddress(mac));
-  Serial.println((String) "Mac: " + macAdd);
 
+  Serial.println((String) "You're connected to: " + ssid);
+  IPAddress ipAdd = WiFi.localIP();
+  String macAdd = getMacAddress(WiFi.macAddress(mac));
+
+  Serial.println((String) "Mac: " + macAdd);
+  Serial.println((String) "IP: " + ipAdd);
+  KeyValue payload[] = {
+      {"imei", (String) "" + macAdd}};
+  postRequest("/api/arduino/create", payload, sizeof(payload) / sizeof(payload[0]));
+  delay(5000);
   dht.begin();
 
   // Initialize previousMillis to current time
@@ -93,7 +104,7 @@ void loop()
         {"humidity", (String)read_sen_humidity()},
         {"soil_value", (String)soilValue},
         {"soil_percentage", (String)soilPercent}};
-    postRequest("/api/", payload);
+    // postRequest("/api/", payload);
     previousMillis = currentMillis;
   }
 }
@@ -133,11 +144,14 @@ float read_sen_temperature()
   return t;
 }
 
-void postRequest(String path, KeyValue keyValue[])
+void postRequest(String path, KeyValue keyValue[], size_t size)
 {
+  client.stop();
+  Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
   if (WiFi.status() == WL_CONNECTED)
   {
-    WiFiClient client;
+
+    Serial.println((String) "Attemting connection to: " + url);
 
     if (client.connect(url.c_str(), 80))
     {
@@ -148,8 +162,6 @@ void postRequest(String path, KeyValue keyValue[])
       client.print("User-Agent: ArduinoR4Wifi/0.1\r\n");
       client.print("Content-Type: application/x-www-form-urlencoded\r\n");
 
-      // Calculate the number of elements in the array
-      int size = sizeof(keyValue) / sizeof(keyValue[0]);
       Serial.println((String) "Number of elements in the array: " + size);
       String requestBody = "";
 
@@ -167,7 +179,7 @@ void postRequest(String path, KeyValue keyValue[])
       client.print("\r\n");
       client.print(requestBody);
 
-      Serial.println("Request sent");
+      Serial.println("Request sent \n" + client);
 
       // Wait for a response
       while (client.connected())
