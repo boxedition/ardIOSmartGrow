@@ -4,12 +4,12 @@
 #include "arduino_secrets.h"
 
 // WIFI
-char ssid[] = LABS_SECRET_SSID; // network SSID (name)
-char pass[] = LABS_SECRET_PASS; // network password
-int status = WL_IDLE_STATUS;    // the WiFi radio's idle status
+char ssid[] = SECRET_SSID;   // network SSID (name)
+char pass[] = SECRET_PASS;   // network password
+int status = WL_IDLE_STATUS; // the WiFi radio's idle status
 byte mac[6];
-const String url = "http://api.boxdev.site/";
-WiFiClient client; // Initialize the Wifi client
+const String url = "api.boxdev.site";
+// WiFiClient client; // Initialize the Wifi client
 
 // DHT11
 #define DHTPin 2
@@ -24,11 +24,17 @@ int soilPercent = 0;
 
 // App
 unsigned long previousMillis = 0;
-const long APP_INTERVAL = 2000; // 2 seconds
+const long APP_INTERVAL = 5000; // 5 seconds
 boolean isRegisted = false;
 
+struct KeyValue
+{
+  String key;
+  String value;
+};
+
 // Proto
-void printMacAddress(byte mac[]);
+String getMacAddress(byte mac[]);
 float read_sen_humidity();
 float read_sen_temperature();
 
@@ -57,8 +63,9 @@ void setup()
     delay(500);
   }
   Serial.println((String) "You're connected to: " + ssid);
-  WiFi.macAddress(mac);
-  printMacAddress(mac);
+  String macAdd = getMacAddress(WiFi.macAddress(mac));
+  Serial.println((String) "Mac: " + macAdd);
+
   dht.begin();
 
   // Initialize previousMillis to current time
@@ -76,30 +83,42 @@ void loop()
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= APP_INTERVAL)
   {
+
     Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
     soilValue = analogRead(A0); // put Sensor insert into soil
     soilPercent = map(soilValue, DRY_VALUE, WET_VALUE, 0, 100);
     Serial.println((String) "Moister value:" + soilValue + " Moister Level:" + soilPercent);
-    // Update Millis
+    KeyValue payload[] = {
+        {"temperature", (String)read_sen_temperature()},
+        {"humidity", (String)read_sen_humidity()},
+        {"soil_value", (String)soilValue},
+        {"soil_percentage", (String)soilPercent}};
+    postRequest("/api/", payload);
     previousMillis = currentMillis;
   }
 }
 
-void printMacAddress(byte mac[])
+/// @brief getMacAddress
+/// @param mac Mac from WiFi.macAddress()
+/// @return Mac as String
+String getMacAddress(byte mac[])
 {
+  String macAddress;
+
   for (int i = 5; i >= 0; i--)
   {
     if (mac[i] < 16)
     {
-      Serial.print("0");
+      macAddress += "0";
     }
-    Serial.print(mac[i], HEX);
-    if (i > 0)
-    {
-      Serial.print(":");
-    }
+    macAddress += String(mac[i], HEX);
+    // Adds : to Mac
+    // if (i > 0) {
+    //   macAddress += ":";
+    // }
   }
-  Serial.println();
+
+  return macAddress;
 }
 
 float read_sen_humidity()
@@ -112,4 +131,60 @@ float read_sen_temperature()
 {
   float t = dht.readTemperature();
   return t;
+}
+
+void postRequest(String path, KeyValue keyValue[])
+{
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    WiFiClient client;
+
+    if (client.connect(url.c_str(), 80))
+    {
+      Serial.println("Connected to server");
+
+      client.print("POST " + path + " HTTP/1.1\r\n");
+      client.print("Host: " + url + "\r\n");
+      client.print("User-Agent: ArduinoR4Wifi/0.1\r\n");
+      client.print("Content-Type: application/x-www-form-urlencoded\r\n");
+
+      // Calculate the number of elements in the array
+      int size = sizeof(keyValue) / sizeof(keyValue[0]);
+      Serial.println((String) "Number of elements in the array: " + size);
+      String requestBody = "";
+
+      // Construct the request body with all key-value pairs
+      for (int i = 0; i < size; i++)
+      {
+        requestBody += keyValue[i].key + "=" + keyValue[i].value;
+        if (i < size - 1)
+        {
+          requestBody += "&";
+        }
+      }
+
+      client.print("Content-Length: " + String(requestBody.length()) + "\r\n");
+      client.print("\r\n");
+      client.print(requestBody);
+
+      Serial.println("Request sent");
+
+      // Wait for a response
+      while (client.connected())
+      {
+        if (client.available())
+        {
+          char c = client.read();
+          Serial.print(c);
+        }
+      }
+
+      client.stop();
+      Serial.println("\nConnection closed");
+    }
+    else
+    {
+      Serial.println("Connection failed");
+    }
+  }
 }
