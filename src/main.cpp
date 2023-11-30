@@ -4,9 +4,9 @@
 #include "arduino_secrets.h"
 
 // WIFI
-char ssid[] = LABS_SECRET_SSID; // network SSID (name)
-char pass[] = LABS_SECRET_PASS; // network password
-int status = WL_IDLE_STATUS;    // the WiFi radio's idle status
+char ssid[] = SECRET_SSID;   // network SSID (name)
+char pass[] = SECRET_PASS;   // network password
+int status = WL_IDLE_STATUS; // the WiFi radio's idle status
 byte mac[6];
 const String remote = "api.boxdev.site";
 const String local = "localhost";
@@ -15,11 +15,14 @@ const String url = remote;
 WiFiClient client;
 
 // DHT11
-#define DHTPin 2
+#define DHTPin 12
 #define DHTTYPE DHT11
 DHT dht = DHT(DHTPin, DHTTYPE);
+const byte sensorDHTVCC = 13; // VCC for DHT
 
 // Soil - Value represents dryness
+const byte sensorSoil = A0;
+const byte sensorSoilVCC = 7; // VCC for Soil Sensor
 const int DRY_VALUE = 620;
 const int WET_VALUE = 310;
 int soilValue = 0;
@@ -27,8 +30,8 @@ int soilPercent = 0;
 
 // App
 unsigned long previousMillis = 0;
-const long APP_INTERVAL = 5000; // 5 seconds
-boolean isRegisted = false;
+const long APP_INTERVAL = 2000; // 5 seconds
+// boolean isRegisted = false;
 
 struct KeyValue
 {
@@ -44,6 +47,11 @@ void postRequest(String path, KeyValue keyValue[], size_t size);
 
 void setup()
 {
+  pinMode(sensorSoilVCC, OUTPUT);
+  digitalWrite(sensorSoilVCC, HIGH);
+
+  pinMode(sensorDHTVCC, OUTPUT);
+  digitalWrite(sensorDHTVCC, HIGH);
   // Initialize serial and wait for port to open
   Serial.begin(9600);
   while (!Serial)
@@ -75,8 +83,8 @@ void setup()
   Serial.println((String) "IP: " + ipAdd);
   KeyValue payload[] = {
       {"imei", (String) "" + macAdd}};
-  postRequest("/api/arduino/create", payload, sizeof(payload) / sizeof(payload[0]));
-  delay(5000);
+  // postRequest("/api/arduino/create", payload, sizeof(payload) / sizeof(payload[0]));
+  // delay(1024);
   dht.begin();
 
   // Initialize previousMillis to current time
@@ -96,7 +104,7 @@ void loop()
   {
 
     Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
-    soilValue = analogRead(A0); // put Sensor insert into soil
+    soilValue = analogRead(sensorSoil); // put Sensor insert into soil
     soilPercent = map(soilValue, DRY_VALUE, WET_VALUE, 0, 100);
     Serial.println((String) "Moister value:" + soilValue + " Moister Level:" + soilPercent);
     KeyValue payload[] = {
@@ -188,6 +196,7 @@ void postRequest(String path, KeyValue keyValue[], size_t size)
         {
           char c = client.read();
           Serial.print(c);
+          client.stop();
         }
       }
 
