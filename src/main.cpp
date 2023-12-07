@@ -29,7 +29,6 @@ unsigned int soilValue = 0;
 unsigned int soilPercent = 0;
 
 // App
-#define HTTP_TIMEOUT_DURATION 1024 // Max Duration of HTTP connectivity
 const bool defaultAnalyse = false;
 unsigned long appMillis = 0;
 const long APP_INTERVAL = 2000;         // Main Loop Interval
@@ -37,11 +36,11 @@ unsigned long httpStartTime = millis(); // HTTP Time
 unsigned int RELAY_TRIGGER_LEVEL = 60;
 
 // Relay
-#define HTTP_TIMEOUT_DURATION 2000 // Max Duration of HTTP connectivity
 const byte relayVCC = 11;
 const byte relaySignal = 10;
-const long RELAY_CHECK_INTERVAL = 1000;
+const long RELAY_CHECK_INTERVAL = 500;
 unsigned long relayMillis = 0;
+bool overrideRelay = false;
 StaticJsonDocument<24> doc;
 
 struct KeyValue
@@ -55,7 +54,7 @@ String getMacAddress(byte mac[]);
 float read_sen_humidity();
 float read_sen_temperature();
 void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse = false);
-void relay(bool state);
+void relayCheck(bool state = false);
 
 void setup()
 {
@@ -116,11 +115,11 @@ void loop()
   unsigned long currentMillis = millis();
   if (currentMillis - relayMillis >= RELAY_CHECK_INTERVAL)
   {
-    Serial.println((String) "\n===== CHECKING SERVER========");
+    Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
     KeyValue payload[] = {
         {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
     postRequest("/api/arduino/water", payload, sizeof(payload) / sizeof(payload[0]), true);
-
+    relayCheck();
     relayMillis = currentMillis;
   }
   /* Executes every APP_INTERVALL ms
@@ -131,10 +130,10 @@ void loop()
   if (currentMillis - appMillis >= APP_INTERVAL)
   {
     Serial.println((String) "\n===== CHECKING VAR ========");
-    Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
+    // Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
     soilValue = analogRead(sensorSoil); // put Sensor insert into soil
     soilPercent = map(soilValue, DRY_VALUE, WET_VALUE, 0, 100);
-    Serial.println((String) "Moister value:" + soilValue + " Moister Level:" + soilPercent);
+    // Serial.println((String) "Moister value:" + soilValue + " Moister Level:" + soilPercent);
     KeyValue payload[] = {
         {"imei", (String)getMacAddress(WiFi.macAddress(mac))},
         {"temperature", (String)read_sen_temperature()},
@@ -181,11 +180,109 @@ float read_sen_temperature()
   return t;
 }
 
-void relayState(bool state)
+void relayCheck(bool state)
 {
-  digitalWrite(relaySignal, state ? HIGH : LOW);
+  digitalWrite(relaySignal, state || overrideRelay ? HIGH : LOW);
 }
 
+void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
+{
+  httpStartTime = millis();
+  client.stop();
+  // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
+  if (WiFi.status() == WL_CONNECTED)
+  {
+
+    Serial.println((String) "Attemting connection to: " + url);
+
+    if (client.connect(url.c_str(), 80))
+    {
+      // Serial.println("Connected to server");
+
+      client.print("POST " + path + " HTTP/1.1\r\n");
+      client.print("Host: " + url + "\r\n");
+      client.print("User-Agent: ArduinoR4Wifi/0.1\r\n");
+      client.print("Content-Type: application/x-www-form-urlencoded\r\n");
+
+      // Serial.println((String) "Number of elements in the array: " + size);
+      String requestBody = "";
+
+      // Construct the request body with all key-value pairs
+      for (int i = 0; i < size; i++)
+      {
+        requestBody += keyValue[i].key + "=" + keyValue[i].value;
+        if (i < size - 1)
+        {
+          requestBody += "&";
+        }
+      }
+
+      client.print("Content-Length: " + String(requestBody.length()) + "\r\n");
+      client.print("\r\n");
+      client.print(requestBody);
+
+      // Serial.println("Request sent \n" + client);
+      if (analyzeResponse)
+      {
+        String response = client.readString();
+
+        // Find the position of the double line break
+        int jsonStart = response.indexOf("\r\n\r\n");
+        if (jsonStart != -1)
+        {
+          // Extract only the JSON payload
+          String jsonResponse = response.substring(jsonStart + 4);
+          DeserializationError error = deserializeJson(doc, jsonResponse);
+
+          // Check if deserialization was successful
+          if (error)
+          {
+            Serial.print("Deserialization error: ");
+            Serial.println(error.c_str());
+          }
+          else
+          {
+            //  Access the deserialized data
+            overrideRelay = doc["water"];            
+          }
+        }
+      }
+
+      /*
+            if (client.connected() && analyzeResponse)
+            {
+              Serial.println("Response:" + response);
+              // Deserialize the JSON response
+              DeserializationError error = deserializeJson(doc, response);
+
+              // Check if deserialization was successful
+              if (error)
+              {
+                Serial.print("Deserialization error: ");
+                Serial.println(error.c_str());
+              }
+              else
+              {
+                // Serial.println("DOC:" + (String)doc);
+                //  Access the deserialized data
+                bool water = doc["water"];
+                Serial.print("Water: ");
+                Serial.println(water);
+              }
+            }
+             */
+      // Serial.println("BEFORE STOP" + response);
+      client.stop();
+      Serial.println("\nConnection closed");
+    }
+    else
+    {
+      Serial.println("Connection failed");
+    }
+  }
+}
+
+/*
 void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
 {
   httpStartTime = millis();
@@ -227,7 +324,7 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
       while (client.connected())
       {
         String response = client.readString();
-        
+
         if (client.available())
         {
           Serial.println("Response:" + response);
@@ -254,86 +351,6 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
         //  Serial.println("\nTimeout occurred");
         //  break;
         //}
-      }
-      client.stop();
-      Serial.println("\nConnection closed");
-    }
-    else
-    {
-      Serial.println("Connection failed");
-    }
-  }
-}
-/*
-
-void postRequestSend(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
-{
-  httpStartTime = millis();
-  client.stop();
-  // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
-  if (WiFi.status() == WL_CONNECTED)
-  {
-
-    Serial.println((String) "Attemting connection to: " + url);
-
-    if (client.connect(url.c_str(), 80))
-    {
-      // Serial.println("Connected to server");
-
-      client.print("POST " + path + " HTTP/1.1\r\n");
-      client.print("Host: " + url + "\r\n");
-      client.print("User-Agent: ArduinoR4Wifi/0.1\r\n");
-      client.print("Content-Type: application/x-www-form-urlencoded\r\n");
-
-      // Serial.println((String) "Number of elements in the array: " + size);
-      String requestBody = "";
-
-      // Construct the request body with all key-value pairs
-      for (int i = 0; i < size; i++)
-      {
-        requestBody += keyValue[i].key + "=" + keyValue[i].value;
-        if (i < size - 1)
-        {
-          requestBody += "&";
-        }
-      }
-
-      client.print("Content-Length: " + String(requestBody.length()) + "\r\n");
-      client.print("\r\n");
-      client.print(requestBody);
-
-      // Serial.println("Request sent \n" + client);
-
-      while (client.connected())
-      {
-        String response = client.readString();
-        
-        if (client.available())
-        {
-          Serial.println("Response:" + response);
-          // Deserialize the JSON response
-          DeserializationError error = deserializeJson(doc, response);
-
-          // Check if deserialization was successful
-          if (error)
-          {
-            Serial.print("Deserialization error: ");
-            Serial.println(error.c_str());
-          }
-          else
-          {
-            //Serial.println("DOC:" + (String)doc);
-            // Access the deserialized data
-            bool water = doc["water"];
-            Serial.print("Water: ");
-            Serial.println(water);
-          }
-        }
-        if (millis() - httpStartTime >= HTTP_TIMEOUT_DURATION)
-        {
-          Serial.println("\nTimeout occurred");
-          break;
-        }
       }
       client.stop();
       Serial.println("\nConnection closed");
