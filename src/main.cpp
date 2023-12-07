@@ -102,7 +102,7 @@ void setup()
   KeyValue payload[] = {
       {"imei", (String)macAdd}};
   postRequest("/api/arduino/create", payload, sizeof(payload) / sizeof(payload[0]));
-  // delay(1024);
+  delay(500);
   dht.begin();
 
   // Initialize appMillis to current time
@@ -113,6 +113,10 @@ void setup()
 void loop()
 {
   unsigned long currentMillis = millis();
+  /* Executes every RELAY_CHECK_INTERVAL ms
+   *
+   * Note: Time and code execution matters.
+   */
   if (currentMillis - relayMillis >= RELAY_CHECK_INTERVAL)
   {
     Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
@@ -122,11 +126,11 @@ void loop()
     relayCheck();
     relayMillis = currentMillis;
   }
+
   /* Executes every APP_INTERVALL ms
    *
    * Note: Time and code execution matters.
    */
-
   if (currentMillis - appMillis >= APP_INTERVAL)
   {
     Serial.println((String) "\n===== CHECKING VAR ========");
