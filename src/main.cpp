@@ -41,7 +41,7 @@ const byte relaySignal = 10;
 const long RELAY_CHECK_INTERVAL = 500;
 unsigned long relayMillis = 0;
 bool overrideRelay = false;
-StaticJsonDocument<24> doc;
+StaticJsonDocument<96> doc;
 
 struct KeyValue
 {
@@ -70,8 +70,9 @@ void setup()
   // DHTV Setup
   pinMode(sensorDHTVCC, OUTPUT);
   digitalWrite(sensorDHTVCC, HIGH);
+  
   // Initialize serial and wait for port to open
-  Serial.begin(115200);
+  Serial.begin(9600);
   while (!Serial)
   {
     ; // wait for serial port to connect.
@@ -113,19 +114,6 @@ void setup()
 void loop()
 {
   unsigned long currentMillis = millis();
-  /* Executes every RELAY_CHECK_INTERVAL ms
-   *
-   * Note: Time and code execution matters.
-   */
-  if (currentMillis - relayMillis >= RELAY_CHECK_INTERVAL)
-  {
-    Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
-    KeyValue payload[] = {
-        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
-    postRequest("/api/arduino/water", payload, sizeof(payload) / sizeof(payload[0]), true);
-    relayCheck();
-    relayMillis = currentMillis;
-  }
 
   /* Executes every APP_INTERVALL ms
    *
@@ -133,6 +121,12 @@ void loop()
    */
   if (currentMillis - appMillis >= APP_INTERVAL)
   {
+    Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
+    KeyValue payloadRelay[] = {
+        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
+    postRequest("/api/arduino/water", payloadRelay, sizeof(payloadRelay) / sizeof(payloadRelay[0]), true);
+    relayCheck();
+    delay(1000);///////
     Serial.println((String) "\n===== CHECKING VAR ========");
     // Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
     soilValue = analogRead(sensorSoil); // put Sensor insert into soil
@@ -191,7 +185,7 @@ void relayCheck(bool state)
 
 void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
 {
-  httpStartTime = millis();
+  //httpStartTime = millis();
   client.stop();
   // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
   if (WiFi.status() == WL_CONNECTED)
@@ -247,34 +241,10 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
           else
           {
             //  Access the deserialized data
-            overrideRelay = doc["water"];            
+            overrideRelay = doc["water"];
           }
         }
       }
-
-      /*
-            if (client.connected() && analyzeResponse)
-            {
-              Serial.println("Response:" + response);
-              // Deserialize the JSON response
-              DeserializationError error = deserializeJson(doc, response);
-
-              // Check if deserialization was successful
-              if (error)
-              {
-                Serial.print("Deserialization error: ");
-                Serial.println(error.c_str());
-              }
-              else
-              {
-                // Serial.println("DOC:" + (String)doc);
-                //  Access the deserialized data
-                bool water = doc["water"];
-                Serial.print("Water: ");
-                Serial.println(water);
-              }
-            }
-             */
       // Serial.println("BEFORE STOP" + response);
       client.stop();
       Serial.println("\nConnection closed");
