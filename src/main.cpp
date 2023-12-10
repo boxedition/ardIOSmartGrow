@@ -25,6 +25,7 @@ const byte sensorSoil = A0;
 const byte sensorSoilVCC = 7; // VCC for Soil Sensor
 const int DRY_VALUE = 620;
 const int WET_VALUE = 310;
+int min_water_auto = 50;
 unsigned int soilValue = 0;
 unsigned int soilPercent = 0;
 
@@ -70,7 +71,7 @@ void setup()
   // DHTV Setup
   pinMode(sensorDHTVCC, OUTPUT);
   digitalWrite(sensorDHTVCC, HIGH);
-  
+
   // Initialize serial and wait for port to open
   Serial.begin(9600);
   while (!Serial)
@@ -108,7 +109,7 @@ void setup()
 
   // Initialize appMillis to current time
   appMillis = millis() + APP_INTERVAL;
-  Serial.println("Setup??");
+  Serial.println("[INFO] Setup Completed!");
 }
 
 void loop()
@@ -121,13 +122,7 @@ void loop()
    */
   if (currentMillis - appMillis >= APP_INTERVAL)
   {
-    Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
-    KeyValue payloadRelay[] = {
-        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
-    postRequest("/api/arduino/water", payloadRelay, sizeof(payloadRelay) / sizeof(payloadRelay[0]), true);
-    relayCheck();
-    delay(1000);///////
-    Serial.println((String) "\n===== CHECKING VAR ========");
+    Serial.println((String) "\n=====> LOGGING VAR");
     // Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
     soilValue = analogRead(sensorSoil); // put Sensor insert into soil
     soilPercent = map(soilValue, DRY_VALUE, WET_VALUE, 0, 100);
@@ -140,6 +135,14 @@ void loop()
         {"soil_percentage", (String)soilPercent}};
     postRequest("/api/arduino/log", payload, sizeof(payload) / sizeof(payload[0]));
     appMillis = currentMillis;
+  }
+  else
+  {
+    Serial.println((String) "\n ===> SERVER");
+    KeyValue payloadRelay[] = {
+        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
+    postRequest("/api/arduino/water", payloadRelay, sizeof(payloadRelay) / sizeof(payloadRelay[0]), true);
+    relayCheck();
   }
 }
 
@@ -185,13 +188,11 @@ void relayCheck(bool state)
 
 void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
 {
-  //httpStartTime = millis();
-  client.stop();
   // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
   if (WiFi.status() == WL_CONNECTED)
   {
 
-    Serial.println((String) "Attemting connection to: " + url);
+    Serial.println((String) "Connecting: " + url + path);
 
     if (client.connect(url.c_str(), 80))
     {
@@ -245,7 +246,7 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
           }
         }
       }
-      // Serial.println("BEFORE STOP" + response);
+
       client.stop();
       Serial.println("\nConnection closed");
     }
