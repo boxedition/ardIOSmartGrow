@@ -70,7 +70,7 @@ void setup()
   // DHTV Setup
   pinMode(sensorDHTVCC, OUTPUT);
   digitalWrite(sensorDHTVCC, HIGH);
-  
+
   // Initialize serial and wait for port to open
   Serial.begin(9600);
   while (!Serial)
@@ -102,13 +102,14 @@ void setup()
   Serial.println((String) "IP: " + ipAdd);
   KeyValue payload[] = {
       {"imei", (String)macAdd}};
+  Serial.println("[INFO] Adding ID: " + macAdd);
   postRequest("/api/arduino/create", payload, sizeof(payload) / sizeof(payload[0]));
   delay(500);
   dht.begin();
 
   // Initialize appMillis to current time
   appMillis = millis() + APP_INTERVAL;
-  Serial.println("Setup??");
+  Serial.println("[INFO] Setup Completed!");
 }
 
 void loop()
@@ -121,17 +122,12 @@ void loop()
    */
   if (currentMillis - appMillis >= APP_INTERVAL)
   {
-    Serial.println((String) "\n+++++++ CHECKING SERVER+++++");
-    KeyValue payloadRelay[] = {
-        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
-    postRequest("/api/arduino/water", payloadRelay, sizeof(payloadRelay) / sizeof(payloadRelay[0]), true);
-    relayCheck();
-    delay(1000);///////
-    Serial.println((String) "\n===== CHECKING VAR ========");
+    Serial.println((String) "\n=====> LOGGING VAR");
     // Serial.println((String) "\n" + "Temperature: " + read_sen_temperature() + "°C Humidity: " + read_sen_humidity() + "%");
     soilValue = analogRead(sensorSoil); // put Sensor insert into soil
     soilPercent = map(soilValue, DRY_VALUE, WET_VALUE, 0, 100);
-    // Serial.println((String) "Moister value:" + soilValue + " Moister Level:" + soilPercent);
+    // Demo -> Ao meter a mao no sensor, relay liga
+    relayCheck(soilPercent > RELAY_TRIGGER_LEVEL ? true : false);
     KeyValue payload[] = {
         {"imei", (String)getMacAddress(WiFi.macAddress(mac))},
         {"temperature", (String)read_sen_temperature()},
@@ -139,7 +135,16 @@ void loop()
         {"soil_value", (String)soilValue},
         {"soil_percentage", (String)soilPercent}};
     postRequest("/api/arduino/log", payload, sizeof(payload) / sizeof(payload[0]));
+
     appMillis = currentMillis;
+  }
+  else
+  {
+    Serial.println((String) "\n ===> SERVER");
+    KeyValue payloadRelay[] = {
+        {"imei", (String)getMacAddress(WiFi.macAddress(mac))}};
+    postRequest("/api/arduino/water", payloadRelay, sizeof(payloadRelay) / sizeof(payloadRelay[0]), true);
+    relayCheck();
   }
 }
 
@@ -166,32 +171,54 @@ String getMacAddress(byte mac[])
   return macAddress;
 }
 
+/**
+ * @brief Reads the humidity value from a sensor.
+ *
+ * This function reads the humidity value from a sensor and returns it as a floating-point number.
+ *
+ * @return Value read from the sensor as a floating-point number.
+ */
 float read_sen_humidity()
 {
+
   float h = dht.readHumidity();
   return h;
 }
 
+/**
+ * @brief Reads the temperature value from a sensor.
+ *
+ * This function reads the temperature value from a sensor and returns it as a floating-point number.
+ *
+ * @return Value read from the sensor as a floating-point number.
+ */
 float read_sen_temperature()
 {
   float t = dht.readTemperature();
   return t;
 }
 
+/**
+ * @brief Controls the relay based on the specified state and overrideRelay value.
+ * 
+ * @param state The desired state of the relay.
+ */
 void relayCheck(bool state)
 {
+  Serial.print("[RELAY] State: ");
+  Serial.println(state);
+  Serial.print("[RELAY] State +  OV: ");
+  Serial.println(state || overrideRelay);
   digitalWrite(relaySignal, state || overrideRelay ? HIGH : LOW);
 }
 
 void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
 {
-  //httpStartTime = millis();
-  client.stop();
   // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
   if (WiFi.status() == WL_CONNECTED)
   {
 
-    Serial.println((String) "Attemting connection to: " + url);
+    Serial.println((String) "Connecting: " + url + path);
 
     if (client.connect(url.c_str(), 80))
     {
@@ -245,9 +272,9 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
           }
         }
       }
-      // Serial.println("BEFORE STOP" + response);
+
       client.stop();
-      Serial.println("\nConnection closed");
+      // Serial.println("\nConnection closed");
     }
     else
     {
@@ -255,84 +282,3 @@ void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResp
     }
   }
 }
-
-/*
-void postRequest(String path, KeyValue keyValue[], size_t size, bool analyzeResponse)
-{
-  httpStartTime = millis();
-  client.stop();
-  // Serial.println((String) "Is Wifi Connected: " + boolean(WiFi.status() == WL_CONNECTED));
-  if (WiFi.status() == WL_CONNECTED)
-  {
-
-    Serial.println((String) "Attemting connection to: " + url);
-
-    if (client.connect(url.c_str(), 80))
-    {
-      // Serial.println("Connected to server");
-
-      client.print("POST " + path + " HTTP/1.1\r\n");
-      client.print("Host: " + url + "\r\n");
-      client.print("User-Agent: ArduinoR4Wifi/0.1\r\n");
-      client.print("Content-Type: application/x-www-form-urlencoded\r\n");
-
-      // Serial.println((String) "Number of elements in the array: " + size);
-      String requestBody = "";
-
-      // Construct the request body with all key-value pairs
-      for (int i = 0; i < size; i++)
-      {
-        requestBody += keyValue[i].key + "=" + keyValue[i].value;
-        if (i < size - 1)
-        {
-          requestBody += "&";
-        }
-      }
-
-      client.print("Content-Length: " + String(requestBody.length()) + "\r\n");
-      client.print("\r\n");
-      client.print(requestBody);
-
-      // Serial.println("Request sent \n" + client);
-
-      while (client.connected())
-      {
-        String response = client.readString();
-
-        if (client.available())
-        {
-          Serial.println("Response:" + response);
-          // Deserialize the JSON response
-          DeserializationError error = deserializeJson(doc, response);
-
-          // Check if deserialization was successful
-          if (error)
-          {
-            Serial.print("Deserialization error: ");
-            Serial.println(error.c_str());
-          }
-          else
-          {
-            //Serial.println("DOC:" + (String)doc);
-            // Access the deserialized data
-            bool water = doc["water"];
-            Serial.print("Water: ");
-            Serial.println(water);
-          }
-        }
-        //if (millis() - httpStartTime >= HTTP_TIMEOUT_DURATION)
-        //{
-        //  Serial.println("\nTimeout occurred");
-        //  break;
-        //}
-      }
-      client.stop();
-      Serial.println("\nConnection closed");
-    }
-    else
-    {
-      Serial.println("Connection failed");
-    }
-  }
-}
-*/
